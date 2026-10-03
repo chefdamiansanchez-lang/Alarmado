@@ -1,0 +1,65 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar proyecto (descomprime el zip si lo subiste sin descomprimir)
+        run: |
+          set -e
+          mkdir -p /tmp/work
+          ZIP=$(find . -maxdepth 2 -name "*.zip" -not -path "./.git/*" | head -n 1)
+          if [ -n "$ZIP" ]; then
+            echo "Usando zip: $ZIP"
+            unzip -o "$ZIP" -d /tmp/work
+          else
+            cp -r . /tmp/work/
+          fi
+          SETTINGS=$(find /tmp/work -name settings.gradle.kts | head -n 1)
+          if [ -z "$SETTINGS" ]; then
+            echo "No se encontro settings.gradle.kts"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Instalar Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Compilar APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug --stacktrace --no-daemon
+
+      - name: Copiar APK
+        run: cp "$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk" "$GITHUB_WORKSPACE/Alarma.apk"
+
+      - name: Guardar APK como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alarma-APK
+          path: Alarma.apk
+
+      - name: Publicar APK en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Alarma v${{ github.run_number }}
+          files: Alarma.apk
